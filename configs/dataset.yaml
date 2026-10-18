@@ -1,0 +1,8 @@
+dataset:
+  name: CIC-IDS2017-GeneratedLabelledFlows
+  raw_dir: "C:/Users/vinub/Downloads/GeneratedLabelledFlows/TrafficLabelling"
+  label_column: "Label"
+  source_column: "Source IP"
+  destination_column: "Destination IP"
+  timestamp_column: "Timestamp"
+  graph_window: "1min"

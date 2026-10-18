@@ -1,9 +1,8 @@
 
 """Calculate graph-derived features for network flows."""
 
+import networkx as nx
 import pandas as pd
-
-from sentinelgraph.graph.builder import build_time_window_graphs
 
 
 def add_graph_features(
@@ -11,107 +10,107 @@ def add_graph_features(
     timestamp_col: str = "Timestamp",
     source_col: str = "Source IP",
     destination_col: str = "Destination IP",
+    window: str = "1min",
 ) -> pd.DataFrame:
-    """Add graph features to each flow using its one-minute graph.
+    """Add communication-graph features to each network flow.
 
-    Original row order and index are preserved.
-    Invalid timestamps or missing endpoints receive zero graph features.
-    Raw IP addresses are used for graph construction, not returned as
-    predictive features by this function.
+    Features are calculated from all valid flows in the same time window.
+    Original row order, index, and columns are preserved, with graph
+    feature columns appended.
+
+    Invalid timestamps or missing/blank endpoints receive zero features.
+    IP addresses are used internally and are not added as model features.
     """
     data = df.copy()
     data.columns = data.columns.astype(str).str.strip()
 
     required = {timestamp_col, source_col, destination_col}
     missing = required - set(data.columns)
+
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-    # Unique internal row identifier allows features to be mapped back
-    # even when the original DataFrame index contains duplicates.
+    feature_names = [
+        "graph_source_out_degree",
+        "graph_destination_in_degree",
+        "graph_source_unique_destinations",
+        "graph_destination_unique_sources",
+        "graph_edge_flow_count",
+    ]
+
+    # Use positional row IDs so duplicate DataFrame indices are safe.
     data["__row_id"] = range(len(data))
 
     parsed_timestamps = pd.to_datetime(
         data[timestamp_col], errors="coerce"
     )
+
+    source_values = data[source_col].astype("string").str.strip()
+    destination_values = data[destination_col].astype("string").str.strip()
+
     valid = (
         parsed_timestamps.notna()
-        & data[source_col].notna()
-        & data[destination_col].notna()
+        & source_values.notna()
+        & destination_values.notna()
+        & source_values.ne("")
+        & destination_values.ne("")
     )
 
     features = pd.DataFrame(
-        {
-            "graph_source_out_degree": 0,
-            "graph_destination_in_degree": 0,
-            "graph_source_unique_destinations": 0,
-            "graph_destination_unique_sources": 0,
-            "graph_edge_flow_count": 0,
-        },
+        0,
         index=range(len(data)),
+        columns=feature_names,
         dtype="int64",
     )
 
     if valid.any():
-        valid_data = data.loc[valid].copy()
-        valid_data[timestamp_col] = parsed_timestamps.loc[valid]
-        valid_data["__window"] = (
-            valid_data[timestamp_col].dt.floor("1min")
-        )
+        valid_data = pd.DataFrame({
+            "__row_id": data.loc[valid, "__row_id"].to_numpy(),
+            "__timestamp": parsed_timestamps.loc[valid].to_numpy(),
+            "__source": source_values.loc[valid].to_numpy(),
+            "__destination": destination_values.loc[valid].to_numpy(),
+        })
+
+        valid_data["__window"] = valid_data["__timestamp"].dt.floor(window)
 
         for _, group in valid_data.groupby("__window", sort=True):
-            graph = build_time_window_graphs(
-                group,
-                timestamp_col=timestamp_col,
-                source_col=source_col,
-                destination_col=destination_col,
-            )
+            graph = nx.DiGraph()
 
-            # A group contains only one minute, so it should produce
-            # at most one graph. Still handle an empty result safely.
-            if not graph:
-                continue
+            # Aggregate repeated source-destination flows.
+            edge_counts = group.groupby(
+                ["__source", "__destination"], sort=False
+            ).size()
 
-            current_graph = next(iter(graph.values()))
+            for (source, destination), count in edge_counts.items():
+                graph.add_edge(
+                    source,
+                    destination,
+                    flow_count=int(count),
+                )
 
-            in_degree = dict(current_graph.in_degree())
-            out_degree = dict(current_graph.out_degree())
+            in_degree = dict(graph.in_degree())
+            out_degree = dict(graph.out_degree())
 
-            unique_destinations = {
-                node: len(set(current_graph.successors(node)))
-                for node in current_graph.nodes
-            }
-            unique_sources = {
-                node: len(set(current_graph.predecessors(node)))
-                for node in current_graph.nodes
-            }
+            unique_destinations = dict(graph.out_degree())
+            unique_sources = dict(graph.in_degree())
 
-            edge_counts = {
-                (source, destination): attrs["flow_count"]
-                for source, destination, attrs
-                in current_graph.edges(data=True)
-            }
+            row_ids = group["__row_id"].to_numpy()
 
-            for row_id, source, destination in zip(
-                group["__row_id"],
-                group[source_col].astype(str).str.strip(),
-                group[destination_col].astype(str).str.strip(),
-            ):
-                if source not in current_graph or destination not in current_graph:
-                    continue
+            for position, (_, row) in enumerate(group.iterrows()):
+                source = row["__source"]
+                destination = row["__destination"]
 
-                features.loc[row_id] = [
+                features.loc[row_ids[position]] = [
                     out_degree.get(source, 0),
                     in_degree.get(destination, 0),
                     unique_destinations.get(source, 0),
                     unique_sources.get(destination, 0),
-                    edge_counts.get((source, destination), 0),
+                    graph[source][destination]["flow_count"],
                 ]
 
     result = df.copy()
     result.columns = result.columns.astype(str).str.strip()
 
-    feature_names = features.columns.tolist()
     for name in feature_names:
         result[name] = features[name].to_numpy()
 
