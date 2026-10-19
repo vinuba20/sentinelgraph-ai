@@ -57,8 +57,12 @@ def evaluate_classifier(
     """Evaluate binary or multiclass predictions without silently assuming label order."""
     actual = np.asarray(y_true)
     predicted = np.asarray(y_pred)
-    labels = np.unique(np.concatenate([actual, predicted]))
-    is_binary = len(labels) == 2
+    observed_labels = np.unique(np.concatenate([actual, predicted]))
+
+    if len(observed_labels) == 2 and set(observed_labels) == {"BENIGN", "ATTACK"}:
+        labels = np.array(["BENIGN", "ATTACK"])
+    else:
+        labels = observed_labels    is_binary = len(labels) == 2
     positive = positive_label if positive_label in labels else labels[-1]
     average = "binary" if is_binary else "weighted"
     metric_kwargs = {"average": average, "zero_division": 0}
