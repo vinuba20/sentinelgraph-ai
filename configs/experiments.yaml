@@ -1,0 +1,10 @@
+# Optional reproducible experiment presets. Pass one of these values by copying it
+# into default.yaml or by using it from a small calling script.
+baseline_vs_graph:
+  target_column: label
+  timestamp_column: timestamp
+  test_size: 0.2
+  validation_size: 0.2
+  time_split: true
+  random_state: 42
+  notes: "CIC-IDS2017 binary BENIGN vs ATTACK; one-minute graph windows"

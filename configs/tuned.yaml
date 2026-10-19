@@ -1,0 +1,18 @@
+# Use for the documented validation-only hyperparameter search after a successful
+# baseline run. This evaluates two settings per model, then refits the winner.
+random_state: 42
+target_column: label
+timestamp_column: timestamp
+test_size: 0.2
+validation_size: 0.2
+time_split: true
+model:
+  n_estimators: 200
+  max_depth: null
+  min_samples_leaf: 1
+  class_weight: balanced_subsample
+  n_jobs: -1
+tuning:
+  enabled: true
+  candidates:
+    - max_depth: [null, 16]
