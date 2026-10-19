@@ -62,7 +62,8 @@ def evaluate_classifier(
     if len(observed_labels) == 2 and set(observed_labels) == {"BENIGN", "ATTACK"}:
         labels = np.array(["BENIGN", "ATTACK"])
     else:
-        labels = observed_labels    is_binary = len(labels) == 2
+        labels = observed_labels    
+    is_binary = len(labels) == 2
     positive = positive_label if positive_label in labels else labels[-1]
     average = "binary" if is_binary else "weighted"
     metric_kwargs = {"average": average, "zero_division": 0}
